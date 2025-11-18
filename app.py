@@ -1,63 +1,65 @@
-import streamlit as st
-from transformers import pipeline
-from pytrends.request import TrendReq
-import pandas as pd
+# Importing necessary libraries and functions
+import json  # Used for working with JSON data
+import asyncio  # Used for asynchronous programming
+from pydantic import BaseModel  # Pydantic for data validation and settings management
+from typing import List  # Used for type hinting
+from serp import search_google_web_automation  # Custom function to automate Google searches
+from my_functions import get_article_from_url, generate_ideas  # Custom functions for processing articles
 
-# Load text generation model
-@st.cache_resource
-def load_model():
-    return pipeline("text-generation", model="gpt2")
+# Setting input parameters
+search_query = "AI in marketing"  # The query to search for
+NUMBER_OF_RESULTS = 10  # Number of search results to process
 
-generator = load_model()
+# Template for the prompt to be used later
+prompt = "extract 5-10 content ideas from the [post], and return the list in json format, [post]: {post}"
 
-# Streamlit UI
-st.set_page_config(page_title="AI Hook/Idea Generator", page_icon="🎬")
-st.title("🎬 AI Hook/Idea Generator for Reels & TikToks")
-st.write("Generate engaging video ideas tailored for your niche — now trend-aware!")
+# Pydantic model for data validation
+class Ideas(BaseModel):
+    ideas: List[str]  # Defines a list of strings to store ideas
 
-# Inputs
-niche = st.text_input("Enter a niche (e.g., 'Math tricks', 'AI tools', 'Language learning')", "")
-tone = st.selectbox("Select tone", ["Educational", "Funny", "Motivational", "Trendy", "Informative"])
-num_ideas = st.slider("Number of ideas to generate", 3, 10, 5)
-trend_mode = st.checkbox("Enable Trend-Aware Mode (uses Google Trends)")
+# Main asynchronous function
+async def main():
+    # Step 1: Fetch the top 100 search results
+    try:
+        # Fetch search results using a custom function
+        search_results = search_google_web_automation(search_query,NUMBER_OF_RESULTS)
+    except Exception as e:
+        # Handle exceptions during search and print error message
+        print(f"Error fetching search results: {e}")
+        return
 
-# Fetch trends
-def fetch_trends(keyword):
-    pytrends = TrendReq(hl="en-US", tz=330)
-    pytrends.build_payload([keyword], cat=0, timeframe="today 3-m", geo="US", gprop="")
-    df = pytrends.interest_over_time()
-    if not df.empty:
-        avg_interest = df[keyword].mean()
-        st.write(f"📈 Average search interest for '{keyword}' (past 3 months): **{avg_interest:.2f}**")
-        return avg_interest
-    else:
-        st.warning("No trend data found. Continuing without trend adjustment.")
-        return None
+    # Step 2: Initialize a list to store all ideas
+    all_ideas = []  # List to store the ideas generated
 
-if st.button("Generate Ideas"):
-    if not niche:
-        st.warning("Please enter a niche.")
-    else:
-        trend_text = ""
-        if trend_mode:
-            st.info("Fetching real-time trends from Google...")
-            interest = fetch_trends(niche)
-            if interest and interest > 30:
-                trend_text = "This topic is trending strongly, focus on viral and attention-grabbing ideas."
-            elif interest and interest < 10:
-                trend_text = "This topic is less active, generate evergreen and informative ideas."
-            else:
-                trend_text = "Generate moderately trending, creative ideas."
-        
-        prompt = f"Generate {num_ideas} short, catchy TikTok or Reels video ideas about {niche} in a {tone.lower()} tone. {trend_text} Each idea should be unique and engaging."
+    # Step 3: Process each search result
+    for result in search_results:
+        try:
+            # Extract URL from the search result
+            result_url = result["url"]
+            # Get article content from the URL using a custom function
+            result_content = get_article_from_url(result_url)
 
-        with st.spinner("Generating ideas..."):
-            result = generator(prompt, max_length=200, num_return_sequences=1, temperature=0.9, do_sample=True)
-            text = result[0]["generated_text"]
+            # If content is successfully retrieved
+            if result_content:
+                # Format the prompt with the retrieved content
+                result_prompt = prompt.format(post=result_content)
+                # Generate ideas using another custom asynchronous function
+                ideas_object = await generate_ideas(result_prompt, Ideas)
 
-        ideas = text.split("\n")
-        st.subheader("✨ Generated Ideas")
-        for i, idea in enumerate(ideas[:num_ideas], start=1):
-            st.markdown(f"**{i}.** {idea.strip()}")
+                # If ideas are generated, extend the all_ideas list
+                if ideas_object and ideas_object.ideas:
+                    all_ideas.extend(ideas_object.ideas)
+        except Exception as e:
+            # Handle exceptions during processing of each result
+            print(f"Error processing search result {result}: {e}")
 
-st.caption("Powered by Hugging Face GPT-2 and Google Trends (pytrends)")
+    # Step 4: Convert the ideas to JSON and output
+    # Serialize the list of ideas into a JSON formatted string
+    json_output = json.dumps(all_ideas, indent=4)
+    # Print the JSON string
+    print(json_output)
+
+# Check if the script is run directly and not imported
+if __name__ == "__main__":
+    # Run the main function using asyncio
+    asyncio.run(main())
