@@ -1,9 +1,5 @@
-# Clone the repository
-## Run the following command in your terminal:
+# To run the code
 
-```
-git clone https://github.com/hassancs91/AI-Content-Ideas-Generator-Prototype.git
-```
 
 # Environment variables
 ## Copy the `.env-example` file to `.env`:
